@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>HM-Pro Coach v3.1</title>
+
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#2563eb">
+    <link rel="apple-touch-icon" href="https://placehold.co/192x192/2563eb/ffffff?text=HM">
+    <link rel="manifest" href="manifest.json">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #f8fafc;
+            color: #1e293b;
+            margin: 0;
+            overflow-x: hidden;
+            overscroll-behavior-y: none;
+        }
+        .glass-card {
+            background: rgba(255, 255, 255, 0.98);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(226, 232, 240, 0.8);
+            border-radius: 1.25rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+        }
+        .input-field {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            border: 1px solid #e2e8f0;
+            border-radius: 0.75rem;
+            background: #ffffff;
+            transition: all 0.2s ease;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+        .input-field:focus { border-color: #2563eb; outline: none; box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1); }
+        .btn-primary {
+            background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+            color: white;
+            padding: 0.75rem 1.25rem;
+            border-radius: 0.75rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            width: 100%;
+            transition: all 0.2s;
+            border: none;
+            cursor: pointer;
+        }
+        .btn-primary:active { transform: scale(0.96); }
+        .btn-secondary {
+            background: white;
+            color: #1e293b;
+            border: 1px solid #e2e8f0;
+            padding: 0.75rem 1.25rem;
+            border-radius: 0.75rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            width: 100%;
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+        .btn-secondary:active { transform: scale(0.96); }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        @keyframes slideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-slide { animation: slideIn 0.3s ease-out forwards; }
+        .progress-bar { transition: width 1s cubic-bezier(0.4, 0, 0.2, 1); }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .animate-fade { animation: fadeIn 0.2s ease-out; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js')
+                    .then(reg => console.log('Service Worker registriert'))
+                    .catch(err => console.log('Service Worker Fehler', err));
+            });
+        }
+    </script>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo, useRef, useCallback } = React;
+
+        const safeUUID = () => {
+            try { return crypto.randomUUID(); } catch {
+                return 'id-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
+            }
+        };
+
+        const storage = {
+            get: (key, fallback = null) => {
+                try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; }
+            },
+            set: (key, value) => { try { localStorage.setItem(key, JSON.stringify(value)); } catch {} },
+            remove: (key) => { try { localStorage.removeItem(key); } catch {} }
+        };
+
+        const Science = {
+            calculateVDOT: (distMeter, timeMin) => {
+                if (!Number.isFinite(distMeter) || !Number.isFinite(timeMin) || timeMin <= 0 || distMeter <= 0) return 30;
+                const v = distMeter / timeMin;
+                const t = timeMin;
+                const drop = 0.8 + 0.1894393 * Math.exp(-0.0115 * t) + 0.2989558 * Math.exp(-0.193 * t);
+                const o2cost = -4.6 + 0.182258 * v + 0.000104 * Math.pow(v, 2);
+                return Math.min(Math.max(o2cost / drop, 30), 85);
+            },
+            getPaces: (vdot) => {
+                const v = Number.isFinite(vdot) && vdot > 0 ? vdot : 30;
+                return {
+                    easy: (1 / ((v * 0.65) / 60) * 1.6).toFixed(2),
+                    threshold: (1 / ((v * 0.88) / 60) * 1.15).toFixed(2),
+                    interval: (1 / ((v * 0.97) / 60) * 1.05).toFixed(2)
+                };
+            },
+            formatPace: (decimal) => {
+                const d = parseFloat(decimal);
+                if (!Number.isFinite(d) || d <= 0) return "--:--";
+                const mins = Math.floor(d);
+                const secs = Math.round((d - mins) * 60);
+                return `${mins}:${secs.toString().padStart(2, '0')}`;
+            },
+            getCycleData: (lastStart, length) => {
+                if (!lastStart) return null;
+                const safeLength = Math.max(parseInt(length) || 28, 1);
+                const today = new Date();
+                const start = new Date(lastStart);
+                if (isNaN(start.getTime())) return null;
+                const diffDays = Math.ceil(Math.abs(today - start) / (1000 * 60 * 60 * 24));
+                const currentDay = (diffDays % safeLength) || safeLength;
+                if (currentDay <= 5) return { phase: "Menstruation", intensity: 0.8, color: "text-red-500", bg: "bg-red-50", icon: "fa-droplet", advice: "Schonendes Training empfohlen." };
+                if (currentDay <= 13) return { phase: "Follikelphase", intensity: 1.1, color: "text-emerald-600", bg: "bg-emerald-50", icon: "fa-bolt", advice: "Maximale Belastbarkeit." };
+                if (currentDay <= 16) return { phase: "Ovulation", intensity: 1.0, color: "text-purple-600", bg: "bg-purple-50", icon: "fa-sun", advice: "Energiehoch, Vorsicht bei Bändern." };
+                return { phase: "Lutealphase", intensity: 0.85, color: "text-orange-500", bg: "bg-orange-50", icon: "fa-leaf", advice: "Fokus auf lockere Läufe." };
+            },
+            parseRaceTime: (timeStr) => {
+                if (!timeStr || typeof timeStr !== 'string') return 0;
+                const parts = timeStr.trim().split(':').map(s => parseFloat(s));
+                if (parts.some(isNaN)) return 0;
+                if (parts.length === 3) return parts[0] * 60 + parts[1] + parts[2] / 60;
+                if (parts.length === 2) return parts[0] + parts[1] / 60;
+                if (parts.length === 1 && parts[0] > 0) return parts[0];
+                return 0;
+            },
+            getHrZones: (maxHr, restHr) => {
+                const max = parseFloat(maxHr);
+                const rest = parseFloat(restHr);
+                if (!Number.isFinite(max) || !Number.isFinite(rest) || max <= rest) return null;
+                const hrr = max - rest;
+                return {
+                    easy: `${Math.round(rest + hrr * 0.60)}–${Math.round(rest + hrr * 0.70)} bpm`,
+                    threshold: `${Math.round(rest + hrr * 0.85)}–${Math.round(rest + hrr * 0.90)} bpm`,
+                    interval: `${Math.round(rest + hrr * 0.95)}–${Math.round(max)} bpm`
+                };
+            },
+            predictTime: (vdot, distKm) => {
+                if (!Number.isFinite(vdot) || vdot <= 0 || !Number.isFinite(distKm) || distKm <= 0) return null;
+                const distM = distKm * 1000;
+                let lo = distKm * 1.5, hi = distKm * 15, mid;
+                for (let i = 0; i < 60; i++) {
+                    mid = (lo + hi) / 2;
+                    const v = Science.calculateVDOT(distM, mid);
+                    if (v > vdot) lo = mid; else hi = mid;
+                }
+                return mid;
+            },
+            formatTime: (totalMinutes) => {
+                if (!Number.isFinite(totalMinutes) || totalMinutes <= 0) return "--:--:--";
+                const h = Math.floor(totalMinutes / 60);
+                const m = Math.floor(totalMinutes % 60);
+                const s = Math.round((totalMinutes * 60) % 60);
+                if (h > 0) return `${h}:${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;
+                return `${m}:${s.toString().padStart(2,'0')}`;
+            },
+            getTaperPhase: (raceDate) => {
+                if (!raceDate) return null;
+                const today = new Date();
+                const race = new Date(raceDate);
+                if (isNaN(race.getTime())) return null;
+                const daysLeft = Math.ceil((race - today) / (1000 * 60 * 60 * 24));
+                if (daysLeft < 0) return { type: 'past', daysLeft: 0, label: 'Wettkampf vorbei', factor: 1.0, color: 'text-slate-400', bg: 'bg-slate-50', icon: 'fa-flag-checkered', advice: 'Zeit für einen neuen Zielwettkampf!' };
+                if (daysLeft <= 7) return { type: 'race-week', daysLeft, label: 'Wettkampfwoche!', factor: 0.5, color: 'text-red-600', bg: 'bg-red-50', icon: 'fa-rocket', advice: 'Nur noch lockere Läufe. Keine neuen Reize. Schlaf & Ernährung priorisieren.' };
+                if (daysLeft <= 14) return { type: 'taper2', daysLeft, label: 'Taper Phase 2', factor: 0.65, color: 'text-orange-500', bg: 'bg-orange-50', icon: 'fa-battery-three-quarters', advice: 'Volumen stark reduzieren, 1–2 kurze Tempoläufe zur Aktivierung.' };
+                if (daysLeft <= 21) return { type: 'taper1', daysLeft, label: 'Taper Phase 1', factor: 0.75, color: 'text-yellow-600', bg: 'bg-yellow-50', icon: 'fa-battery-half', advice: 'Volumen um 25% reduzieren, Intensität beibehalten.' };
+                if (daysLeft <= 42) return { type: 'build', daysLeft, label: 'Aufbauphase', factor: 1.0, color: 'text-emerald-600', bg: 'bg-emerald-50', icon: 'fa-arrow-trend-up', advice: 'Vollgas. Trainingsvolumen aufbauen.' };
+                return { type: 'base', daysLeft, label: 'Grundlagenphase', factor: 1.0, color: 'text-blue-600', bg: 'bg-blue-50', icon: 'fa-mountain', advice: 'Fokus auf Easy-Läufe und Grundlagenausdauer.' };
+            },
+            getPopulationPercentile: (vdot) => {
+                if (vdot < 35) return { percent: 40, text: "Besser als 40% (Grundfitness)", color: "text-slate-500" };
+                if (vdot < 42) return { percent: 65, text: "Top 35% (Guter Hobbyläufer)", color: "text-blue-500" };
+                if (vdot < 50) return { percent: 85, text: "Top 15% (Ambitioniert)", color: "text-emerald-500" };
+                if (vdot < 58) return { percent: 95, text: "Top 5% (Lokales Spitzenfeld)", color: "text-orange-500" };
+                return { percent: 99, text: "Top 1% (Elite-Amateur)", color: "text-red-500" };
+            }
+        };
+
+        const Notification = ({ message, type = 'success', onClose }) => {
+            if (!message) return null;
+            return (
+                <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 ${type === 'error' ? 'bg-red-600' : 'bg-slate-900'} text-white px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-3 z-[100] animate-slide w-[90%] max-w-sm`}>
+                    <i className={`fas ${type === 'error' ? 'fa-exclamation-circle' : 'fa-check-circle'} flex-none`}></i>
+                    <span className="font-bold text-sm flex-1 text-center">{message}</span>
+                    <button onClick={onClose} className="opacity-60 hover:opacity-100 ml-1 flex-none"><i className="fas fa-times"></i></button>
+                </div>
+            );
+        };
+
+        const StatCard = ({ label, value, subValue, icon, color }) => (
+            <div className="glass-card p-4 flex flex-col items-center justify-center text-center">
+                <div className={`w-10 h-10 rounded-full ${color} flex items-center justify-center mb-2 text-white shadow-sm`}><i className={`fas ${icon}`}></i></div>
+                <div className="text-xl font-black text-slate-800">{value}</div>
+                {subValue && <div className="text-[9px] text-slate-400 font-bold uppercase">{subValue}</div>}
+                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">{label}</div>
+            </div>
+        );
+
+        const DEFAULT_PROFILE = {
+            baseTime: 0,
+            experience: "intermediate",
+            cycleEnabled: false,
+            lastPeriod: "",
+            cycleLength: 28,
+            age: "",
+            weight: "",
+            maxHr: "",
+            restHr: "",
+            assessmentCompleted: false,
+            assessmentDistance: 5,
+            assessmentTime: "",
+            raceGoalDate: "",
+            raceGoalName: "",
+            raceGoalDist: 21.0975
+        };
+
+        function App() {
+            const [isLoading, setIsLoading] = useState(true);
+            const [notification, setNotification] = useState(null);
+            const [activeTab, setActiveTab] = useState('plan');
+            const [quickLogRun, setQuickLogRun] = useState(null);
+            const [assessmentDist, setAssessmentDist] = useState(5);
+            const [showPredictor, setShowPredictor] = useState(false);
+            const fileInputRef = useRef(null);
+
+            const [profile, setProfile] = useState(() => ({
+                ...DEFAULT_PROFILE,
+                ...storage.get('mc_profile_v31', {})
+            }));
+            const [runs, setRuns] = useState(() => storage.get('mc_runs_v31', []));
+            const [races, setRaces] = useState(() => storage.get('mc_races_v31', []));
+            const [nextRunIdx, setNextRunIdx] = useState(() => storage.get('mc_next_run_idx_v31', 0));
+
+            useEffect(() => { storage.set('mc_profile_v31', profile); }, [profile]);
+            useEffect(() => { storage.set('mc_runs_v31', runs); }, [runs]);
+            useEffect(() => { storage.set('mc_races_v31', races); }, [races]);
+            useEffect(() => { storage.set('mc_next_run_idx_v31', nextRunIdx); }, [nextRunIdx]);
+
+            useEffect(() => { setTimeout(() => setIsLoading(false), 400); }, []);
+
+            const showNotify = useCallback((msg, type = 'success') => {
+                setNotification({ message: msg, type });
+                setTimeout(() => setNotification(null), 3500);
+            }, []);
+
+            const adaptiveVDOT = useMemo(() => {
+                if (!profile.assessmentCompleted) return 30;
+                let bestVDOT = Science.calculateVDOT(
+                    profile.assessmentDistance * 1000,
+                    parseFloat(profile.assessmentTime)
+                );
+                runs.slice(0, 15).forEach(run => {
+                    if (run.distance > 2) {
+                        const v
